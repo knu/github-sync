@@ -1,0 +1,88 @@
+#!/usr/bin/env ruby
+#
+# github-sync - checks out all your projects on GitHub under your local directory 
+#
+# How to set up:
+#     $ GITHUB_DIR=$HOME/github; export GITHUB_DIR
+#     # or you will have $HOME/src/github by default
+#
+# How to use:
+#     $ github-sync
+#
+# Copyright (c) 2009 Akinori MUSHA
+#
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+
+require 'open-uri'
+require 'pp'
+require 'yaml'
+
+def setup
+  $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
+  $user = `git config --global github.user`.chomp
+
+  if $user.empty?
+    STDERR.puts 'Please set github.user in ~/.gitconfig.'
+    exit
+  end
+end
+
+def main(argv)
+  setup
+  checkout_all
+end
+
+def checkout_all
+  Dir.mkdir($base_dir) if !File.directory?($base_dir)
+
+  result_yaml = open('http://github.com/api/v2/yaml/repos/show/%s' % $user) { |f| f.read }
+  result = YAML.load(result_yaml)
+
+  result['repositories'].each { |repo|
+    name = repo[:name]
+    owner = repo[:owner]
+    path = '%s/%s' % [owner, name]
+
+    puts '==> %s' % path
+
+    dir = File.join($base_dir, name)
+
+    if File.directory?(dir)
+      Dir.chdir(dir) {
+        system 'git', 'pull', '--rebase', 'origin', 'master'
+        system 'git', 'fetch', '--tags'
+      }
+    else
+      Dir.chdir($base_dir) {
+        repospec = 'git@github.com:%s.git' % path
+        system 'git', 'clone', repospec, name
+      }
+    end
+
+    puts ''
+  }
+end
+
+main(ARGV)
