@@ -35,9 +35,10 @@
 # SUCH DAMAGE.
 #
 
-require 'open-uri'
+require 'rubygems'
 require 'pp'
 require 'yaml'
+require 'mechanize'
 
 def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
@@ -54,10 +55,23 @@ def main(argv)
   checkout_all
 end
 
+def ua
+  $ua ||= Mechanize.new { |ua|
+    ua.cert_store = OpenSSL::X509::Store.new.tap { |store|
+      store.set_default_paths
+      %w[
+        /opt/local/share/curl/curl-ca-bundle.crt
+      ].each { |file|
+        store.add_file file if File.exist?(file)
+      }
+    }
+  }
+end
+
 def checkout_all
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
 
-  result_yaml = open('http://github.com/api/v2/yaml/repos/show/%s' % $user) { |f| f.read }
+  result_yaml = ua.get_file('http://github.com/api/v2/yaml/repos/show/%s' % $user)
   result = YAML.load(result_yaml)
 
   result['repositories'].each { |repo|
