@@ -95,6 +95,24 @@ def checkout_all
       }
     end
 
+    if repo[:fork]
+      unless Dir.chdir(dir) {
+          `git remote 2>/dev/null`
+        }.split(' ').include?('upstream')
+      then
+        page = ua.get(repo[:url])
+        a = page.at('span.fork-flag a')
+        upstream_uri = page.uri + (a['href'] + '.git')
+        puts 'Registering upstream repository: %s' % upstream_uri.to_s
+        Dir.chdir(dir) {
+          system 'git', 'remote', 'add', 'upstream', upstream_uri.to_s
+        }
+      end
+      Dir.chdir(dir) {
+        system 'git', 'remote', 'update', 'upstream'
+      }
+    end
+
     puts ''
   }
 end
