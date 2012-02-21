@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #
-# github-sync - checks out all your projects on GitHub under your local directory 
+# github-sync - checks out all your projects on GitHub under your local directory
 #
 # How to set up:
 #     $ GITHUB_DIR=$HOME/github; export GITHUB_DIR
@@ -9,7 +9,7 @@
 # How to use:
 #     $ github-sync
 #
-# Copyright (c) 2009 Akinori MUSHA
+# Copyright (c) 2009, 2012 Akinori MUSHA
 #
 # All rights reserved.
 #
