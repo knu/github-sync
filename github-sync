@@ -68,20 +68,32 @@ def ua
   }
 end
 
+def repo_dir(repo)
+  File.join($base_dir, repo[:name])
+end
+
 def checkout_all
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
 
   result_yaml = ua.get_file('http://github.com/api/v2/yaml/repos/show/%s' % $user)
   result = YAML.load(result_yaml)
 
-  result['repositories'].each { |repo|
+  result['repositories'].sort { |a, b|
+    if !File.directory?(repo_dir(a))
+      -1
+    elsif !File.directory?(repo_dir(b))
+      1
+    else
+      a[:name] <=> b[:name]
+    end
+  }.each { |repo|
     name = repo[:name]
     owner = repo[:owner]
     path = '%s/%s' % [owner, name]
 
     puts '==> %s' % path
 
-    dir = File.join($base_dir, name)
+    dir = repo_dir(repo)
 
     if File.directory?(dir)
       Dir.chdir(dir) {
