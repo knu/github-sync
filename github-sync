@@ -37,8 +37,9 @@
 
 require 'rubygems'
 require 'pp'
-require 'yaml'
+require 'json'
 require 'mechanize'
+require 'shellwords'
 
 def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
@@ -68,60 +69,60 @@ def ua
   }
 end
 
-def repo_dir(repo)
-  File.join($base_dir, repo[:name])
+def repo_dirname(repo)
+  ($repo_dirname ||= {})[repo['clone_url']] ||=
+    begin
+      user = repo['owner']['login']
+      if user == $user
+        repo['name']
+      else
+        '%s-%s' % [user, repo['name']]
+      end
+    end
 end
 
 def checkout_all
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
+  Dir.chdir($base_dir)
 
-  result_yaml = ua.get_file('http://github.com/api/v2/yaml/repos/show/%s' % $user)
-  result = YAML.load(result_yaml)
+  result = JSON.parse(ua.get_file('https://api.github.com/users/%s/repos' % $user))
 
-  result['repositories'].sort { |a, b|
-    if !File.directory?(repo_dir(a))
+  result.sort { |a, b|
+    if !File.directory?(repo_dirname(a))
       -1
-    elsif !File.directory?(repo_dir(b))
+    elsif !File.directory?(repo_dirname(b))
       1
     else
-      a[:name] <=> b[:name]
+      a['name'] <=> b['name']
     end
   }.each { |repo|
-    name = repo[:name]
-    owner = repo[:owner]
-    path = '%s/%s' % [owner, name]
+    puts '==> %s' % repo['full_name']
 
-    puts '==> %s' % path
-
-    dir = repo_dir(repo)
+    dir = repo_dirname(repo)
 
     if File.directory?(dir)
       Dir.chdir(dir) {
-        system 'git', 'pull', '--rebase', 'origin', 'master'
-        system 'git', 'fetch', '--tags'
+        system 'git remote update'
+        local = `git symbolic-ref HEAD 2>/dev/null`.strip
+        $?.success? && !local.empty? or break
+        remote = `git for-each-ref --format='%(upstream:short)' #{local.shellescape} 2>/dev/null`.strip
+        $?.success? && !remote.empty? or break
+        system 'git', 'rebase', remote
+        system 'git submodule update --init --recursive'
       }
     else
-      Dir.chdir($base_dir) {
-        repospec = 'git@github.com:%s.git' % path
-        system 'git', 'clone', repospec, name
-      }
+      system 'git', 'clone', '--recursive', repo['ssh_url'], dir
     end
 
-    if repo[:fork]
-      unless Dir.chdir(dir) {
-          `git remote 2>/dev/null`
-        }.split(' ').include?('upstream')
-      then
-        page = ua.get(repo[:url])
-        a = page.at('span.fork-flag a')
-        upstream_uri = page.uri + (a['href'] + '.git')
-        puts 'Registering upstream repository: %s' % upstream_uri.to_s
-        Dir.chdir(dir) {
-          system 'git', 'remote', 'add', 'upstream', upstream_uri.to_s
-        }
-      end
+    if repo['fork'] && !Dir.chdir(dir) {
+        `git remote 2>/dev/null`
+      }.split(' ').include?('upstream')
+    then
+      detail = JSON.parse(ua.get_file('https://api.github.com/repos/%s' % repo['full_name']))
+      upstream_url = detail['parent']['clone_url']
+      puts 'Registering upstream repository: %s' % upstream_url
       Dir.chdir(dir) {
-        system 'git', 'remote', 'update', 'upstream'
+        system 'git', 'remote', 'add', 'upstream', upstream_url
       }
     end
 
