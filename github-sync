@@ -8,6 +8,7 @@
 #
 # How to use:
 #     $ github-sync
+#     $ github-sync $org1 $org2 ...
 #
 # Copyright (c) 2009, 2012 Akinori MUSHA
 #
@@ -53,7 +54,7 @@ end
 
 def main(argv)
   setup
-  checkout_all
+  checkout_all(argv)
 end
 
 def ua
@@ -81,21 +82,31 @@ def repo_dirname(repo)
     end
 end
 
-def checkout_all
+def checkout_all(users)
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
   Dir.chdir($base_dir)
 
-  result = JSON.parse(ua.get_file('https://api.github.com/users/%s/repos' % $user))
+  users = [$user] if users.empty?
 
-  result.sort { |a, b|
-    if !File.directory?(repo_dirname(a))
-      -1
-    elsif !File.directory?(repo_dirname(b))
-      1
-    else
-      a['name'] <=> b['name']
-    end
-  }.each { |repo|
+  users.map { |user|
+    JSON.parse(
+      begin
+        ua.get_file('https://api.github.com/users/%s/repos' % user)
+      rescue
+        ua.get_file('https://api.github.com/orgs/%s/repos' % user)
+      end
+    )
+  }.map { |result|
+    result.sort { |a, b|
+      if !File.directory?(repo_dirname(a))
+        -1
+      elsif !File.directory?(repo_dirname(b))
+        1
+      else
+        a['name'] <=> b['name']
+      end
+    }
+  }.flatten(1).each { |repo|
     puts '==> %s' % repo['full_name']
 
     dir = repo_dirname(repo)
