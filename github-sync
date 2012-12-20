@@ -44,7 +44,7 @@ require 'shellwords'
 
 def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
-  $user = `git config --global github.user`.chomp
+  $user = `git config github.user`.chomp
 
   if $user.empty?
     STDERR.puts 'Please set github.user in ~/.gitconfig.'
