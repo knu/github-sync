@@ -72,14 +72,15 @@ end
 
 def repo_dirname(repo)
   ($repo_dirname ||= {})[repo['clone_url']] ||=
-    begin
-      user = repo['owner']['login']
-      if user == $user
-        repo['name']
-      else
-        '%s-%s' % [user, repo['name']]
-      end
-    end
+    repo['name']
+    # begin
+    #   user = repo['owner']['login']
+    #   if user == $user
+    #     repo['name']
+    #   else
+    #     '%s-%s' % [user, repo['name']]
+    #   end
+    # end
 end
 
 def checkout_all(users)
