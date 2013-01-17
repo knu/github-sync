@@ -83,6 +83,25 @@ def repo_dirname(repo)
     # end
 end
 
+def github_get_all(url, result = nil)
+  res = ua.get(url)
+
+  if result.nil?
+    url += '?page=1&per_page=100'
+    result = []
+  end
+
+  result.concat(JSON.parse(res.body))
+
+  if links = res['Link']
+    links.scan(/(?:\A|\G, *)<([^>]+)>; *rel="([^"]+)"/) { |link, rel|
+      return github_get_all(link, result) if rel == 'next'
+    }
+  end
+
+  result
+end
+
 def checkout_all(users)
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
   Dir.chdir($base_dir)
@@ -90,13 +109,11 @@ def checkout_all(users)
   users = [$user] if users.empty?
 
   users.map { |user|
-    JSON.parse(
-      begin
-        ua.get_file('https://api.github.com/users/%s/repos' % user)
-      rescue
-        ua.get_file('https://api.github.com/orgs/%s/repos' % user)
-      end
-    )
+    begin
+      github_get_all('https://api.github.com/users/%s/repos' % user)
+    rescue
+      github_get_all('https://api.github.com/orgs/%s/repos' % user)
+    end
   }.map { |result|
     result.sort { |a, b|
       if !File.directory?(repo_dirname(a))
