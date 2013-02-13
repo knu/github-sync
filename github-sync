@@ -41,10 +41,12 @@ require 'pp'
 require 'json'
 require 'mechanize'
 require 'shellwords'
+require 'optparse'
 
 def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
   $user = `git config github.user`.chomp
+  $new_only = false
 
   if $user.empty?
     STDERR.puts 'Please set github.user in ~/.gitconfig.'
@@ -54,6 +56,10 @@ end
 
 def main(argv)
   setup
+  OptionParser.new { |opts|
+    opts.on('-N') { |bool| $new_only = bool }
+    opts.parse!(argv)
+  }
   checkout_all(argv)
 end
 
@@ -125,11 +131,11 @@ def checkout_all(users)
       end
     }
   }.flatten(1).each { |repo|
-    puts '==> %s' % repo['full_name']
-
     dir = repo_dirname(repo)
 
     if File.directory?(dir)
+      next if $new_only
+      puts '==> Updating %s' % repo['full_name']
       Dir.chdir(dir) {
         system 'git remote update'
         local = `git symbolic-ref HEAD 2>/dev/null`.strip
@@ -140,6 +146,7 @@ def checkout_all(users)
         system 'git submodule update --init --recursive'
       }
     else
+      puts '==> Cloning into %s' % repo['full_name']
       system 'git', 'clone', '--recursive', repo['ssh_url'], dir
     end
 
