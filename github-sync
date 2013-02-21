@@ -47,6 +47,7 @@ def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
   $user = `git config github.user`.chomp
   $new_only = false
+  $include_orgs = false
   $exclude = (ENV['GITHUB_SYNC_EXCLUDE'] || '').split
 
   if $user.empty?
@@ -59,10 +60,26 @@ def main(argv)
   setup
   OptionParser.new { |opts|
     opts.on('-N') { |bool| $new_only = bool }
+    opts.on('-o') { |bool| $include_orgs = bool }
     opts.on('-x PATTERN') { |name| $exclude << name }
     opts.parse!(argv)
   }
-  checkout_all(argv)
+  if argv.empty?
+    names = [$user]
+  else
+    names = [*argv]
+  end
+  if $include_orgs
+    names = names.map { |username|
+      [
+        username,
+        *github_get_orgs(username).map { |org|
+          org['login']
+        }
+      ]
+    }.flatten
+  end
+  checkout_all(names)
 end
 
 def ua
@@ -110,11 +127,15 @@ def github_get_all(url, result = nil)
   result
 end
 
+def github_get_orgs(username)
+  github_get_all('https://api.github.com/users/%s/orgs' % username)
+rescue
+  []
+end
+
 def checkout_all(users)
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
   Dir.chdir($base_dir)
-
-  users = [$user] if users.empty?
 
   users.map { |user|
     begin
