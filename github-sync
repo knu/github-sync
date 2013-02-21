@@ -47,6 +47,7 @@ def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
   $user = `git config github.user`.chomp
   $new_only = false
+  $exclude = (ENV['GITHUB_SYNC_EXCLUDE'] || '').split
 
   if $user.empty?
     STDERR.puts 'Please set github.user in ~/.gitconfig.'
@@ -58,6 +59,7 @@ def main(argv)
   setup
   OptionParser.new { |opts|
     opts.on('-N') { |bool| $new_only = bool }
+    opts.on('-x PATTERN') { |name| $exclude << name }
     opts.parse!(argv)
   }
   checkout_all(argv)
@@ -131,6 +133,11 @@ def checkout_all(users)
       end
     }
   }.flatten(1).each { |repo|
+    repo_path = '%s/%s' % [repo['owner']['login'], repo['name']]
+    next if $exclude.any? { |pattern|
+      File.fnmatch(pattern, repo_path, File::FNM_PATHNAME)
+    }
+
     dir = repo_dirname(repo)
 
     if File.directory?(dir)
