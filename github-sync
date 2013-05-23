@@ -87,6 +87,7 @@ def ua
     ua.cert_store = OpenSSL::X509::Store.new.tap { |store|
       store.set_default_paths
       %w[
+        /etc/ssl/cert.pem
         /opt/local/share/curl/curl-ca-bundle.crt
       ].each { |file|
         store.add_file file if File.exist?(file)
