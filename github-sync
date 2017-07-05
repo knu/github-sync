@@ -10,7 +10,7 @@
 #     $ github-sync
 #     $ github-sync $org1 $org2 ...
 #
-# Copyright (c) 2009, 2012, 2013 Akinori MUSHA
+# Copyright (c) 2009-2017 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -60,6 +60,7 @@ def main(argv)
   setup
   OptionParser.new { |opts|
     opts.on('-N') { |bool| $new_only = bool }
+    opts.on('-O') { |bool| $list_orphans = bool and $include_orgs = true }
     opts.on('-o') { |bool| $include_orgs = bool }
     opts.on('-x PATTERN') { |name| $exclude << name }
     opts.parse!(argv)
@@ -79,7 +80,11 @@ def main(argv)
       ]
     }.flatten
   end
-  checkout_all(names)
+  if $list_orphans
+    list_orphans(names)
+  else
+    checkout_all(names)
+  end
 end
 
 def ua
@@ -134,27 +139,32 @@ rescue
   []
 end
 
+def get_repos(users)
+  users.inject([]) { |repos, user|
+    repos |
+      begin
+        github_get_all('https://api.github.com/users/%s/repos' % user)
+      rescue
+        github_get_all('https://api.github.com/orgs/%s/repos' % user)
+      end
+  }
+end
+
 def checkout_all(users)
+  repos = get_repos(users).sort { |a, b|
+    if !File.directory?(repo_dirname(a))
+      -1
+    elsif !File.directory?(repo_dirname(b))
+      1
+    else
+      a['name'] <=> b['name']
+    end
+  }
+
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
   Dir.chdir($base_dir)
 
-  users.map { |user|
-    begin
-      github_get_all('https://api.github.com/users/%s/repos' % user)
-    rescue
-      github_get_all('https://api.github.com/orgs/%s/repos' % user)
-    end
-  }.map { |result|
-    result.sort { |a, b|
-      if !File.directory?(repo_dirname(a))
-        -1
-      elsif !File.directory?(repo_dirname(b))
-        1
-      else
-        a['name'] <=> b['name']
-      end
-    }
-  }.flatten(1).each { |repo|
+  repos.each { |repo|
     repo_path = '%s/%s' % [repo['owner']['login'], repo['name']]
     next if $exclude.any? { |pattern|
       File.fnmatch(pattern, repo_path, File::FNM_PATHNAME)
@@ -193,6 +203,14 @@ def checkout_all(users)
 
     puts ''
   }
+end
+
+def list_orphans(users)
+  dirs = Dir.entries($base_dir).reject { |name|
+    name.start_with?('.')
+  }
+
+  puts dirs - get_repos(users).map { |repo| repo_dirname(repo) }
 end
 
 main(ARGV)
