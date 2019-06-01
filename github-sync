@@ -3,14 +3,13 @@
 # github-sync - checks out all your projects on GitHub under your local directory
 #
 # How to set up:
-#     $ GITHUB_DIR=$HOME/github; export GITHUB_DIR
-#     # or you will have $HOME/src/github by default
+#     $ GITHUB_DIR=$HOME/github.com; export GITHUB_DIR
+#     # or you will have $HOME/src/github.com by default
 #
 # How to use:
 #     $ github-sync
-#     $ github-sync $org1 $org2 ...
 #
-# Copyright (c) 2009-2017 Akinori MUSHA
+# Copyright (c) 2009-2019 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -36,95 +35,53 @@
 # SUCH DAMAGE.
 #
 
-require 'rubygems'
-require 'pp'
-require 'json'
-require 'mechanize'
+require 'yaml'
+require 'faraday'
+require 'faraday_middleware'
 require 'shellwords'
 require 'optparse'
 
 def setup
-  $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github')
-  $user = `git config github.user`.chomp
+  $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github.com')
   $new_only = false
-  $include_orgs = false
   $exclude = (ENV['GITHUB_SYNC_EXCLUDE'] || '').split
+end
 
-  if $user.empty?
-    STDERR.puts 'Please set github.user in ~/.gitconfig.'
-    exit
-  end
+def get_token
+  hub_config = File.expand_path('~/.config/hub')
+  raise "hub is not configured" unless File.file?(hub_config)
+
+  YAML.load_file(hub_config)['github.com'].each { |hash|
+    if token = hash["oauth_token"]
+      return token
+    end
+  }
+  raise "token not found"
 end
 
 def main(argv)
   setup
   OptionParser.new { |opts|
     opts.on('-N') { |bool| $new_only = bool }
-    opts.on('-O') { |bool| $list_orphans = bool and $include_orgs = true }
-    opts.on('-o') { |bool| $include_orgs = bool }
     opts.on('-x PATTERN') { |name| $exclude << name }
     opts.parse!(argv)
   }
-  if argv.empty?
-    names = [$user]
-  else
-    names = [*argv]
-  end
-  if $include_orgs
-    names = names.map { |username|
-      [
-        username,
-        *github_get_orgs(username).map { |org|
-          org['login']
-        }
-      ]
-    }.flatten
-  end
-  if $list_orphans
-    list_orphans(names)
-  else
-    checkout_all(names)
-  end
+  checkout_all
 end
 
 def ua
-  $ua ||= Mechanize.new { |ua|
-    ua.cert_store = OpenSSL::X509::Store.new.tap { |store|
-      store.set_default_paths
-      %w[
-        /etc/ssl/cert.pem
-        /opt/local/share/curl/curl-ca-bundle.crt
-      ].each { |file|
-        store.add_file file if File.exist?(file)
-      }
-    }
+  $ua ||= Faraday.new('https://api.github.com/', headers: { 'Authorization' => "token #{get_token}" }) { |faraday|
+    faraday.response :json, content_type: /\bjson\z/
+    faraday.adapter  Faraday.default_adapter
   }
 end
 
-def repo_dirname(repo)
-  ($repo_dirname ||= {})[repo['clone_url']] ||=
-    repo['name']
-    # begin
-    #   user = repo['owner']['login']
-    #   if user == $user
-    #     repo['name']
-    #   else
-    #     '%s-%s' % [user, repo['name']]
-    #   end
-    # end
-end
+def github_get_all(path, result = [])
+  res = ua.get(path)
 
-def github_get_all(url, result = nil)
-  res = ua.get(url)
+  result.concat(res.body)
 
-  if result.nil?
-    url += '?page=1&per_page=100'
-    result = []
-  end
-
-  result.concat(JSON.parse(res.body))
-
-  if links = res['Link']
+  if links = res.headers['Link']
     links.scan(/(?:\A|\G, *)<([^>]+)>; *rel="([^"]+)"/) { |link, rel|
       return github_get_all(link, result) if rel == 'next'
     }
@@ -133,44 +90,26 @@ def github_get_all(url, result = nil)
   result
 end
 
-def github_get_orgs(username)
-  github_get_all('https://api.github.com/users/%s/orgs' % username)
-rescue
-  []
+def get_repos
+  github_get_all('/user/repos')
 end
 
-def get_repos(users)
-  users.inject([]) { |repos, user|
-    repos |
-      begin
-        github_get_all('https://api.github.com/users/%s/repos' % user)
-      rescue
-        github_get_all('https://api.github.com/orgs/%s/repos' % user)
-      end
-  }
-end
-
-def checkout_all(users)
-  repos = get_repos(users).sort { |a, b|
-    if !File.directory?(repo_dirname(a))
-      -1
-    elsif !File.directory?(repo_dirname(b))
-      1
-    else
-      a['name'] <=> b['name']
-    end
-  }
+def checkout_all
+  repos = get_repos.sort_by { |repo| repo['full_name'] }
 
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
   Dir.chdir($base_dir)
 
   repos.each { |repo|
-    repo_path = '%s/%s' % [repo['owner']['login'], repo['name']]
+    dir = repo['full_name']
+    name = repo['name']
     next if $exclude.any? { |pattern|
-      File.fnmatch(pattern, repo_path, File::FNM_PATHNAME)
+      if pattern.include?('/')
+        File.fnmatch(pattern, dir, File::FNM_PATHNAME)
+      else
+        File.fnmatch(pattern, name, File::FNM_PATHNAME)
+      end
     }
-
-    dir = repo_dirname(repo)
 
     if File.directory?(dir)
       next if $new_only
@@ -193,7 +132,7 @@ def checkout_all(users)
         `git remote 2>/dev/null`
       }.split(' ').include?('upstream')
     then
-      detail = JSON.parse(ua.get_file('https://api.github.com/repos/%s' % repo['full_name']))
+      detail = ua.get('https://api.github.com/repos/%s' % dir).body
       upstream_url = detail['parent']['clone_url']
       puts 'Registering upstream repository: %s' % upstream_url
       Dir.chdir(dir) {
@@ -203,14 +142,6 @@ def checkout_all(users)
 
     puts ''
   }
-end
-
-def list_orphans(users)
-  dirs = Dir.entries($base_dir).reject { |name|
-    name.start_with?('.')
-  }
-
-  puts dirs - get_repos(users).map { |repo| repo_dirname(repo) }
 end
 
 main(ARGV)
