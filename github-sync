@@ -2,11 +2,15 @@
 #
 # github-sync - checks out all your projects on GitHub under your local directory
 #
+# Requirements:
+#     - hub(1) - https://github.com/github/hub
+#
 # How to set up:
 #     $ GITHUB_DIR=$HOME/github.com; export GITHUB_DIR
 #     # or you will have $HOME/src/github.com by default
 #
 # How to use:
+#     $ github-sync -N
 #     $ github-sync
 #
 # Copyright (c) 2009-2021 Akinori MUSHA
