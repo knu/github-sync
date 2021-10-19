@@ -9,7 +9,7 @@
 # How to use:
 #     $ github-sync
 #
-# Copyright (c) 2009-2019 Akinori MUSHA
+# Copyright (c) 2009-2021 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -35,9 +35,7 @@
 # SUCH DAMAGE.
 #
 
-require 'yaml'
-require 'faraday'
-require 'faraday_middleware'
+require 'json'
 require 'shellwords'
 require 'optparse'
 
@@ -45,18 +43,6 @@ def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github.com')
   $new_only = false
   $exclude = (ENV['GITHUB_SYNC_EXCLUDE'] || '').split
-end
-
-def get_token
-  hub_config = File.expand_path('~/.config/hub')
-  raise "hub is not configured" unless File.file?(hub_config)
-
-  YAML.load_file(hub_config)['github.com'].each { |hash|
-    if token = hash["oauth_token"]
-      return token
-    end
-  }
-  raise "token not found"
 end
 
 def main(argv)
@@ -69,33 +55,20 @@ def main(argv)
   checkout_all
 end
 
-def ua
-  $ua ||= Faraday.new('https://api.github.com/', headers: { 'Authorization' => "token #{get_token}" }) { |faraday|
-    faraday.response :json, content_type: /\bjson\z/
-    faraday.adapter  Faraday.default_adapter
-  }
-end
+def github_api(path)
+  args = %W[hub api --paginate #{path}]
+  json = `#{args.shelljoin}`
+  $?.success? or raise "GitHub API failed"
 
-def github_get_all(path, result = [])
-  res = ua.get(path)
-
-  result.concat(res.body)
-
-  if links = res.headers['Link']
-    links.scan(/(?:\A|\G, *)<([^>]+)>; *rel="([^"]+)"/) { |link, rel|
-      return github_get_all(link, result) if rel == 'next'
-    }
+  if json.match?(/\n\[/)
+    json.each_line.flat_map { |line| JSON.parse(line) }
+  else
+    JSON.parse(json)
   end
-
-  result
-end
-
-def get_repos
-  github_get_all('/user/repos')
 end
 
 def checkout_all
-  repos = get_repos.sort_by { |repo| repo['full_name'] }
+  repos = github_api('user/repos').sort_by { |repo| repo['full_name'] }
 
   Dir.mkdir($base_dir) if !File.directory?($base_dir)
   Dir.chdir($base_dir)
@@ -132,8 +105,8 @@ def checkout_all
         `git remote 2>/dev/null`
       }.split(' ').include?('upstream')
     then
-      detail = ua.get('https://api.github.com/repos/%s' % dir).body
-      upstream_url = detail['parent']['clone_url']
+      detail = github_api("repos/#{dir}")
+      upstream_url = detail.dig('parent', 'clone_url')
       puts 'Registering upstream repository: %s' % upstream_url
       Dir.chdir(dir) {
         system 'git', 'remote', 'add', 'upstream', upstream_url
