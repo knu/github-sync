@@ -110,6 +110,7 @@ def checkout_all
       puts 'Registering upstream repository: %s' % upstream_url
       Dir.chdir(dir) {
         system 'git', 'remote', 'add', 'upstream', upstream_url
+        system 'git', 'remote', 'update', 'upstream'
       }
     end
 
