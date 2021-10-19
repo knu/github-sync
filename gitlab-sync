@@ -1,0 +1,138 @@
+#!/usr/bin/env ruby
+#
+# gitlab-sync - checks out all your projects on GitLab under your local directory
+#
+# Requirements:
+#     - glab(1) - https://github.com/profclems/glab
+#
+# How to set up:
+#     $ GITLAB_DIR=$HOME/gitlab.com; export GITLAB_DIR
+#     # or you will have $HOME/src/gitlab.com by default
+#
+# How to use:
+#     $ gitlab-sync -N
+#     $ gitlab-sync
+#
+# Copyright (c) 2021 Akinori MUSHA
+#
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+#
+
+require 'json'
+require 'shellwords'
+require 'optparse'
+
+def setup
+  $base_dir = ENV['GITLAB_DIR'] || File.expand_path('~/src/gitlab.com')
+  $new_only = false
+  $exclude = (ENV['GITLAB_SYNC_EXCLUDE'] || '').split
+end
+
+def main(argv)
+  setup
+  OptionParser.new { |opts|
+    opts.on('-N') { |bool| $new_only = bool }
+    opts.on('-x PATTERN') { |name| $exclude << name }
+    opts.parse!(argv)
+  }
+  checkout_all
+end
+
+def gitlab_api(*args)
+  args = %W[glab api] + args
+  json = `#{args.shelljoin}`
+  $?.success? or raise "GitLab API failed"
+
+  if json.match?(/\n\[/)
+    json.each_line.flat_map { |line| JSON.parse(line) }
+  else
+    JSON.parse(json)
+  end
+end
+
+def get_git_protocol
+  @git_protocol ||=
+    begin
+      git_protocol = `glab config get git_protocol`.chomp
+      $?.success? or raise "glab failed"
+      git_protocol
+    end
+end
+
+def get_repos
+  gitlab_api("projects", *%W[--paginate -X GET -F membership=true])
+end
+
+def checkout_all
+  repos = get_repos.sort_by { |repo| repo['path_with_namespace'] }
+
+  Dir.mkdir($base_dir) if !File.directory?($base_dir)
+  Dir.chdir($base_dir)
+
+  repos.each { |repo|
+    dir = repo['path_with_namespace']
+    name = repo['path']
+    next if $exclude.any? { |pattern|
+      if pattern.include?('/')
+        File.fnmatch(pattern, dir, File::FNM_PATHNAME)
+      else
+        File.fnmatch(pattern, name, File::FNM_PATHNAME)
+      end
+    }
+
+    repo_url_key = "#{get_git_protocol}_url_to_repo"
+
+    if File.directory?(dir)
+      next if $new_only
+      puts '==> Updating %s' % dir
+      Dir.chdir(dir) {
+        system 'git remote update'
+        local = `git symbolic-ref HEAD 2>/dev/null`.strip
+        $?.success? && !local.empty? or break
+        remote = `git for-each-ref --format='%(upstream:short)' #{local.shellescape} 2>/dev/null`.strip
+        $?.success? && !remote.empty? or break
+        system 'git', 'rebase', remote
+        system 'git submodule update --init --recursive'
+      }
+    else
+      puts '==> Cloning into %s' % dir
+      system 'git', 'clone', '--recursive', repo[repo_url_key], dir
+    end
+
+    if (upstream_url = repo.dig('forked_from_project', repo_url_key)) &&
+        !Dir.chdir(dir) {
+          `git remote 2>/dev/null`
+        }.scan(/\S+/).include?('upstream')
+      puts 'Registering upstream repository: %s' % upstream_url
+      Dir.chdir(dir) {
+        system 'git', 'remote', 'add', 'upstream', upstream_url
+        system 'git', 'remote', 'update', 'upstream'
+      }
+    end
+
+    puts ''
+  }
+end
+
+main(ARGV)
