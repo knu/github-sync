@@ -1,19 +1,19 @@
 #!/usr/bin/env ruby
 #
-# github-sync - checks out all your projects on GitHub under your local directory
+# github-sync - checks out and synchronizes all GitHub repositories you have access to
 #
 # Requirements:
-#     - hub(1) - https://github.com/github/hub
+#     - gh(1) - GitHub CLI: https://github.com/cli/cli
 #
 # How to set up:
 #     $ GITHUB_DIR=$HOME/github.com; export GITHUB_DIR
 #     # or you will have $HOME/src/github.com by default
 #
 # How to use:
-#     $ github-sync -N
 #     $ github-sync
+#     $ github-sync -N
 #
-# Copyright (c) 2009-2021 Akinori MUSHA
+# Copyright (c) 2009-2024 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -60,7 +60,7 @@ def main(argv)
 end
 
 def github_api(path)
-  args = %W[hub api --paginate #{path}]
+  args = %W[gh api --paginate #{path}]
   json = `#{args.shelljoin}`
   $?.success? or raise "GitHub API failed"
 
