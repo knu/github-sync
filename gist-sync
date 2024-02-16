@@ -1,0 +1,88 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+require 'json'
+require 'pathname'
+require 'shellwords'
+require 'optparse'
+
+def main(argv)
+  @base_dir = ENV['GISTS_DIR'] || File.expand_path('~/src/gist.github.com')
+  @new_only = false
+
+  OptionParser.new { |opts|
+    opts.on('-N') { |bool| @new_only = bool }
+    opts.parse!(argv)
+  }
+  checkout_all
+end
+
+def github_api(path)
+  args = %W[gh api --paginate #{path}]
+  json = `#{args.shelljoin}`
+  $?.success? or raise "GitHub API failed"
+
+  if json.match?(/\n\[/)
+    json.each_line.flat_map { |line| JSON.parse(line) }
+  else
+    JSON.parse(json)
+  end
+end
+
+def checkout_all
+  repos = github_api('gists').sort_by { |repo| repo['created_at'] }
+
+  FileUtils.mkpath(@base_dir)
+  Dir.chdir(@base_dir)
+
+  gists = repos.map { |repo|
+    [repo['id'], repo.dig('owner', 'login'), repo['files'].each_key.first]
+  }
+
+  existing_gists = gists.select { |dir, namespace|
+    FileUtils.mkpath(namespace)
+
+    next true if File.directory?(dir)
+
+    puts '==> Cloning into %s' % dir
+    system(*%W[git clone git@gist.github.com:#{dir}.git #{dir}])
+    puts
+
+    false
+  }
+
+  existing_gists.each { |dir,|
+    puts '==> Updating %s' % dir
+    Dir.chdir(dir) {
+      system 'git remote update'
+      local = `git symbolic-ref HEAD 2>/dev/null`.strip
+      $?.success? && !local.empty? or break
+      remote = `git for-each-ref --format='%(upstream:short)' #{local.shellescape} 2>/dev/null`.strip
+      $?.success? && !remote.empty? or break
+      system 'git', 'rebase', remote
+    }
+    puts
+  } unless @new_only
+
+  gists.each { |dir, namespace, name|
+    Dir.chdir(namespace) do
+      link_target = "../#{dir}"
+      existing_symlink = Pathname('.').children.find { |child|
+        File.symlink?(child) && File.readlink(child) == link_target
+      }&.to_s
+      symlink = 1.step.find { |i|
+        filename = i == 1 ? name : "#{name}.#{i}"
+        if filename == existing_symlink || !File.exist?(filename)
+          break filename
+        end
+      }
+      if File.exist?(symlink)
+        FileUtils.rename(existing_symlink, symlink, verbose: true) if existing_symlink != symlink
+      else
+        FileUtils.ln_s(link_target, symlink, verbose: true)
+      end
+    end
+  }
+end
+
+main(ARGV)
