@@ -88,7 +88,10 @@ def checkout_all
       end
     }
 
-    if File.directory?(dir)
+    repo_url = repo['ssh_url']
+    ref = "origin/#{repo['default_branch']}"
+
+    if File.exist?(File.join(dir, ".git"))
       next if $new_only
       puts '==> Updating %s' % dir
       Dir.chdir(dir) {
@@ -100,9 +103,20 @@ def checkout_all
         system 'git', 'rebase', remote
         system 'git submodule update --init --recursive'
       }
+    elsif File.directory?(dir)
+      puts '==> Cloning into a non-empty directory %s' % dir
+      ref = "origin/#{repo['default_branch']}"
+      Dir.chdir(dir) {
+        system *%W[git init]
+        system *%W[git remote add origin #{repo_url}]
+        system *%W[git fetch]
+        system *%W[git reset #{ref}]
+        system *%W[git branch --track --set-upstream-to=#{ref}]
+        system "git ls-files -z --deleted | xargs -0 git checkout --"
+      }
     else
       puts '==> Cloning into %s' % dir
-      system 'git', 'clone', '--recursive', repo['ssh_url'], dir
+      system 'git', 'clone', '--recursive', repo_url, dir
     end
 
     if repo['fork'] &&

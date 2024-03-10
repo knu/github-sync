@@ -102,8 +102,9 @@ def checkout_all
     }
 
     repo_url_key = "#{get_git_protocol}_url_to_repo"
+    repo_url = repo[repo_url_key]
 
-    if File.directory?(dir)
+    if File.exist?(File.join(dir, ".git"))
       next if $new_only
       puts '==> Updating %s' % dir
       Dir.chdir(dir) {
@@ -115,9 +116,20 @@ def checkout_all
         system 'git', 'rebase', remote
         system 'git submodule update --init --recursive'
       }
+    elsif File.directory?(dir)
+      puts '==> Cloning into a non-empty directory %s' % dir
+      ref = "origin/#{repo['default_branch']}"
+      Dir.chdir(dir) {
+        system *%W[git init]
+        system *%W[git remote add origin #{repo_url}]
+        system *%W[git fetch]
+        system *%W[git reset #{ref}]
+        system *%W[git branch --track --set-upstream-to=#{ref}]
+        system "git ls-files -z --deleted | xargs -0 git checkout --"
+      }
     else
       puts '==> Cloning into %s' % dir
-      system 'git', 'clone', '--recursive', repo[repo_url_key], dir
+      system 'git', 'clone', '--recursive', repo_url, dir
     end
 
     if (upstream_url = repo.dig('forked_from_project', repo_url_key)) &&
