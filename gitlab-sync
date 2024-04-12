@@ -13,7 +13,7 @@
 #     $ gitlab-sync -N
 #     $ gitlab-sync
 #
-# Copyright (c) 2021 Akinori MUSHA
+# Copyright (c) 2021-2024 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -42,9 +42,11 @@
 require 'json'
 require 'shellwords'
 require 'optparse'
+require 'uri'
 
 def setup
-  $base_dir = ENV['GITLAB_DIR'] || File.expand_path('~/src/gitlab.com')
+  $gitlab_host = URI(ENV['GITLAB_HOST'] || "https://gitlab.com").host
+  $base_dir = ENV['GITLAB_DIR'] || File.expand_path($gitlab_host, "~/src")
   $new_only = false
   $exclude = (ENV['GITLAB_SYNC_EXCLUDE'] || '').split
 end
