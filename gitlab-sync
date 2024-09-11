@@ -113,6 +113,13 @@ def checkout_all
         system 'git remote update'
         local = `git symbolic-ref HEAD 2>/dev/null`.strip
         $?.success? && !local.empty? or break
+
+        if repo['default_branch'] == 'main' && local == 'refs/heads/master'
+          puts "==> Switching the default branch from 'master' to 'main'"
+          system 'git', 'checkout', 'main'
+          local = `git symbolic-ref HEAD 2>/dev/null`.strip
+        end
+
         remote = `git for-each-ref --format='%(upstream:short)' #{local.shellescape} 2>/dev/null`.strip
         $?.success? && !remote.empty? or break
         system 'git', 'rebase', remote
