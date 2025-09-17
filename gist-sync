@@ -30,7 +30,9 @@ def github_api(path)
 end
 
 def checkout_all
-  repos = github_api('gists').sort_by { |repo| repo['created_at'] }
+  login = github_api('user')['login']
+
+  repos = github_api("users/#{login}/gists").sort_by { |repo| repo['created_at'] }
 
   FileUtils.mkpath(@base_dir)
   Dir.chdir(@base_dir)
