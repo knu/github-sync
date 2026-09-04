@@ -12,8 +12,9 @@
 # How to use:
 #     $ github-sync
 #     $ github-sync -N
+#     $ github-sync -N -a   # include archived repositories
 #
-# Copyright (c) 2009-2024 Akinori MUSHA
+# Copyright (c) 2009-2026 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -46,6 +47,7 @@ require 'optparse'
 def setup
   $base_dir = ENV['GITHUB_DIR'] || File.expand_path('~/src/github.com')
   $new_only = false
+  $include_archived = false
   $exclude = (ENV['GITHUB_SYNC_EXCLUDE'] || '').split
 end
 
@@ -53,6 +55,7 @@ def main(argv)
   setup
   OptionParser.new { |opts|
     opts.on('-N') { |bool| $new_only = bool }
+    opts.on('-a') { |bool| $include_archived = bool }
     opts.on('-x PATTERN') { |name| $exclude << name }
     opts.parse!(argv)
   }
@@ -87,6 +90,7 @@ def checkout_all
         File.fnmatch(pattern, name, File::FNM_PATHNAME)
       end
     }
+    next if $new_only && repo['archived'] && !$include_archived
 
     repo_url = repo['ssh_url']
     ref = "origin/#{repo['default_branch']}"

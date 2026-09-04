@@ -11,9 +11,10 @@
 #
 # How to use:
 #     $ gitlab-sync -N
+#     $ gitlab-sync -N -a   # include archived projects
 #     $ gitlab-sync
 #
-# Copyright (c) 2021-2024 Akinori MUSHA
+# Copyright (c) 2021-2026 Akinori MUSHA
 #
 # All rights reserved.
 #
@@ -48,6 +49,7 @@ def setup
   $gitlab_host = URI(ENV['GITLAB_HOST'] || "https://gitlab.com").host
   $base_dir = ENV['GITLAB_DIR'] || File.expand_path($gitlab_host, "~/src")
   $new_only = false
+  $include_archived = false
   $exclude = (ENV['GITLAB_SYNC_EXCLUDE'] || '').split
 end
 
@@ -55,6 +57,7 @@ def main(argv)
   setup
   OptionParser.new { |opts|
     opts.on('-N') { |bool| $new_only = bool }
+    opts.on('-a') { |bool| $include_archived = bool }
     opts.on('-x PATTERN') { |name| $exclude << name }
     opts.parse!(argv)
   }
@@ -102,6 +105,7 @@ def checkout_all
         File.fnmatch(pattern, name, File::FNM_PATHNAME)
       end
     }
+    next if $new_only && repo['archived'] && !$include_archived
 
     repo_url_key = "#{get_git_protocol}_url_to_repo"
     repo_url = repo[repo_url_key]
