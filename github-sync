@@ -130,16 +130,25 @@ def checkout_all
       system 'git', 'clone', '--recursive', repo_url, dir
     end
 
-    if repo['fork'] &&
-        !Dir.chdir(dir) {
-          `git remote 2>/dev/null`
-        }.scan(/\S+/).include?('upstream')
-      detail = github_api("repos/#{dir}")
-      upstream_url = detail.dig('parent', 'clone_url')
-      puts 'Registering upstream repository: %s' % upstream_url
+    if repo['fork']
       Dir.chdir(dir) {
-        system 'git', 'remote', 'add', 'upstream', upstream_url
-        system 'git', 'remote', 'update', 'upstream'
+        if !`git remote 2>/dev/null`.scan(/\S+/).include?('upstream')
+          detail = github_api("repos/#{dir}")
+          upstream_url = detail.dig('parent', 'clone_url')
+          puts 'Registering upstream repository: %s' % upstream_url
+          system 'git', 'remote', 'add', 'upstream', upstream_url
+          system 'git', 'remote', 'update', 'upstream'
+        end
+
+        # gh(1) refuses to pick a base repository in a fork clone until a
+        # default is set (older versions defaulted to the parent), so
+        # commands like `gh run list` fail there.  Point gh at the fork
+        # itself when no default has been chosen.
+        resolved = `git config --get-regexp '^remote\\..*\\.gh-resolved$' 2>/dev/null`
+        if resolved.strip.empty?
+          puts 'Setting the default repository for gh: %s' % dir
+          system 'gh', 'repo', 'set-default', dir
+        end
       }
     end
 
